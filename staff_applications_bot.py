@@ -164,8 +164,7 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
 
         user = interaction.user
         e = discord.Embed(
-            title="📋 New Staff Application",
-            description=f"**Applicant:** {user.mention} (`{user.id}`)",
+            description=f"# ✦ STAFF APPLICATION\n**Applicant:** {user.mention} (`{user.id}`)",
             color=ACCENT,
             timestamp=datetime.now(timezone.utc),
         )
@@ -174,7 +173,7 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
         e.add_field(name="Timezone / Activity", value=clip(self.activity.value, 100), inline=True)
         if isinstance(user, discord.Member) and user.joined_at:
             e.add_field(name="Joined server", value=discord.utils.format_dt(user.joined_at, "R"), inline=True)
-        e.add_field(name="Why staff?", value=clip(self.why.value), inline=False)
+        e.add_field(name="Reason for applying", value=clip(self.why.value), inline=False)
         e.add_field(name="Experience", value=clip(self.experience.value), inline=False)
         e.add_field(name="Scenario answer", value=clip(self.scenario.value), inline=False)
         e.add_field(name="Status", value="🕓 Pending review", inline=False)
