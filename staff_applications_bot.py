@@ -427,7 +427,7 @@ class ReviewButton(
 ):
     STYLES = {
         "accept": ("Accept", "✅", discord.ButtonStyle.success),
-        "interview": ("Interview", "🎤", discord.ButtonStyle.primary),
+        "interview": ("Interview", None, discord.ButtonStyle.secondary),  # grey, no emoji
         "deny": ("Deny", "❌", discord.ButtonStyle.danger),
     }
 
