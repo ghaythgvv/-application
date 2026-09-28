@@ -20,8 +20,8 @@ from discord.ext import commands
 # ============================== CONFIG ==============================
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-GUILD_ID = 0             # your server ID
-REVIEW_CHANNEL_ID = 0    # private channel where applications arrive
+GUILD_ID = 1410440666747633707             # your server ID
+REVIEW_CHANNEL_ID = 1513904281198137475    # private channel where applications arrive
 STAFF_ROLE_ID = 0        # role given when an application is accepted (0 = give no role)
 REVIEWER_ROLE_ID = 0     # role allowed to Accept / Deny (0 = only Manage Server / Admin)
 
