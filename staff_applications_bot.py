@@ -28,7 +28,7 @@ APPLY_CHANNEL_ID = 1513904279847702699     # channel where the Apply panel lives
 STAFF_ROLE_ID = 0        # role given when an application is accepted (0 = give no role)
 REVIEWER_ROLE_ID = 0     # role allowed to Accept / Deny (0 = only Manage Server / Admin)
 
-SERVER_NAME = "Your Server"
+SERVER_NAME = "ELT | ELITE LEADERS COMMUNITY"
 BANNER_URL = ""          # direct image link for the panel banner (leave "" for none)
 ACCENT = 0x8B3DFF        # embed colour
 
@@ -42,6 +42,7 @@ log = logging.getLogger("staffapps")
 state = {"open": True}
 pending: set[int] = set()
 handled: set[int] = set()
+submitting: set[int] = set()
 cooldowns: dict[int, float] = {}
 
 intents = discord.Intents.default()
@@ -62,6 +63,13 @@ def is_reviewer(member: discord.abc.User) -> bool:
 def clip(text: str, limit: int = 1000) -> str:
     text = (text or "").strip() or "—"
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def quote(text: str, limit: int = 1000) -> str:
+    """Clip an answer and show it as a quote block (also stops user text from making headings)."""
+    body = clip(text, limit).replace("\n", "\n> ")
+    body = body if len(body) <= 1200 else body[:1199] + "…"
+    return "> " + body
 
 
 def panel_embed() -> discord.Embed:
@@ -111,6 +119,26 @@ def panel_embed() -> discord.Embed:
 
 
 # ------------------------------ Apply flow ------------------------------
+async def has_open_application(uid: int) -> bool:
+    """True if this user still has an application waiting in the pending channel.
+    Reads the channel itself, so it keeps working after restarts and manual deletions."""
+    channel = bot.get_channel(PENDING_CHANNEL_ID)
+    if channel is None:
+        return False
+    footer = f"User ID: {uid}"
+    try:
+        async for m in channel.history(limit=100):
+            if (
+                m.author.id == bot.user.id
+                and m.embeds
+                and m.embeds[0].footer.text == footer
+                and m.components  # buttons still present = not decided yet
+            ):
+                return True
+    except discord.HTTPException:
+        return False
+    return False
+
 class ApplicationModal(discord.ui.Modal, title="Staff Application"):
     age = discord.ui.TextInput(
         label="Your age",
@@ -147,14 +175,25 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        age_text = self.age.value.strip()
+        if not (age_text.isascii() and age_text.isdigit() and 13 <= int(age_text) <= 99):
+            await interaction.response.send_message(
+                "⚠️ Please enter your real age as a number (13 or older). Press **Apply** to try again.",
+                ephemeral=True,
+            )
+            return
+
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        if interaction.user.id in pending:
+        uid = interaction.user.id
+        if uid in submitting or await has_open_application(uid):
             await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
             return
+        submitting.add(uid)
 
         channel = interaction.client.get_channel(PENDING_CHANNEL_ID)
         if channel is None:
+            submitting.discard(uid)
             log.error("Pending channel %s not found", PENDING_CHANNEL_ID)
             await interaction.followup.send(
                 "⚠️ Applications are temporarily unavailable. Please tell an admin.",
@@ -163,19 +202,26 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
             return
 
         user = interaction.user
+        joined = (
+            discord.utils.format_dt(user.joined_at, "R")
+            if isinstance(user, discord.Member) and user.joined_at
+            else "—"
+        )
         e = discord.Embed(
-            description=f"# ✦ STAFF APPLICATION\n**Applicant:** {user.mention} (`{user.id}`)",
+            description=(
+                "# ✦ STAFF APPLICATION\n"
+                f"**Applicant:** {user.mention} (`{user.id}`)\n"
+                f"**Age:** {clip(self.age.value, 10)}  •  "
+                f"**Timezone / Activity:** {clip(self.activity.value, 100)}  •  "
+                f"**Joined:** {joined}\n\n"
+                f"## Why do you want to be staff?\n{quote(self.why.value)}\n\n"
+                f"## Previous experience\n{quote(self.experience.value)}\n\n"
+                f"## How would you handle an argument?\n{quote(self.scenario.value)}"
+            ),
             color=ACCENT,
             timestamp=datetime.now(timezone.utc),
         )
         e.set_thumbnail(url=user.display_avatar.url)
-        e.add_field(name="Age", value=clip(self.age.value, 10), inline=True)
-        e.add_field(name="Timezone / Activity", value=clip(self.activity.value, 100), inline=True)
-        if isinstance(user, discord.Member) and user.joined_at:
-            e.add_field(name="Joined server", value=discord.utils.format_dt(user.joined_at, "R"), inline=True)
-        e.add_field(name="Reason for applying", value=clip(self.why.value), inline=False)
-        e.add_field(name="Experience", value=clip(self.experience.value), inline=False)
-        e.add_field(name="Scenario answer", value=clip(self.scenario.value), inline=False)
         e.add_field(name="Status", value="🕓 Pending review", inline=False)
         e.set_footer(text=f"User ID: {user.id}")
 
@@ -183,7 +229,7 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
             await channel.send(embed=e, view=review_view(user.id, interview=True))
         except discord.HTTPException:
             log.exception("Could not post application")
-            pending.discard(user.id)
+            submitting.discard(user.id)
             await interaction.followup.send(
                 "⚠️ Something went wrong sending your application. Please try again later.",
                 ephemeral=True,
@@ -191,6 +237,7 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
             return
 
         pending.add(user.id)
+        submitting.discard(user.id)
         cooldowns[user.id] = time.time() + COOLDOWN_HOURS * 3600
         await interaction.followup.send(
             "✅ Your application was sent! We'll reply by DM — keep your DMs open.",
@@ -200,6 +247,7 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
     async def on_error(self, interaction: discord.Interaction, error: Exception):
         log.exception("Application modal error", exc_info=error)
         pending.discard(interaction.user.id)
+        submitting.discard(interaction.user.id)
         msg = "⚠️ Something went wrong. Please try again."
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
@@ -222,7 +270,7 @@ class ApplyView(discord.ui.View):
         if not state["open"]:
             return await interaction.response.send_message("🔴 Applications are currently closed.", ephemeral=True)
 
-        if user.id in pending:
+        if await has_open_application(user.id):
             return await interaction.response.send_message(
                 "⏳ You already have an application under review.", ephemeral=True
             )
