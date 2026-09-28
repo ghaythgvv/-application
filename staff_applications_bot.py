@@ -21,7 +21,9 @@ from discord.ext import commands
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 GUILD_ID = 1410440666747633707             # your server ID
-REVIEW_CHANNEL_ID = 1513904281198137475    # private channel where applications arrive
+PENDING_CHANNEL_ID = 1513904283337101364   # new applications arrive here
+ACCEPTED_CHANNEL_ID = 1513904281198137475  # accepted applications are posted here
+DENIED_CHANNEL_ID = 1513904282267811920    # denied applications are posted here
 STAFF_ROLE_ID = 0        # role given when an application is accepted (0 = give no role)
 REVIEWER_ROLE_ID = 0     # role allowed to Accept / Deny (0 = only Manage Server / Admin)
 
@@ -38,6 +40,7 @@ log = logging.getLogger("staffapps")
 
 state = {"open": True}
 pending: set[int] = set()
+handled: set[int] = set()
 cooldowns: dict[int, float] = {}
 
 intents = discord.Intents.default()
@@ -145,9 +148,9 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        channel = interaction.client.get_channel(REVIEW_CHANNEL_ID)
+        channel = interaction.client.get_channel(PENDING_CHANNEL_ID)
         if channel is None:
-            log.error("Review channel %s not found", REVIEW_CHANNEL_ID)
+            log.error("Pending channel %s not found", PENDING_CHANNEL_ID)
             await interaction.followup.send(
                 "⚠️ Applications are temporarily unavailable. Please tell an admin.",
                 ephemeral=True,
@@ -268,6 +271,12 @@ async def finalize(interaction, message: discord.Message, uid: int, action: str,
     reviewer = interaction.user
     notes = []
 
+    if action != "interview":
+        if message.id in handled:
+            await interaction.followup.send("This application was already handled.", ephemeral=True)
+            return
+        handled.add(message.id)
+
     embed = message.embeds[0].copy() if message.embeds else discord.Embed(title="Application")
     # replace the Status field
     status_index = next((i for i, f in enumerate(embed.fields) if f.name == "Status"), None)
@@ -325,9 +334,29 @@ async def finalize(interaction, message: discord.Message, uid: int, action: str,
     else:
         embed.add_field(name="Status", value=status, inline=False)
 
-    # buttons stay only while a final decision has not been made
-    view = review_view(uid, interview=False) if action == "interview" else None
-    await message.edit(embed=embed, view=view)
+    if action == "interview":
+        try:
+            await message.edit(embed=embed, view=review_view(uid, interview=False))
+        except discord.HTTPException:
+            notes.append("⚠️ Couldn't update the application message.")
+    else:
+        dest = interaction.client.get_channel(ACCEPTED_CHANNEL_ID if action == "accept" else DENIED_CHANNEL_ID)
+        posted = False
+        if dest is None:
+            notes.append("⚠️ Result channel not found - check the channel IDs.")
+        else:
+            try:
+                await dest.send(embed=embed)
+                posted = True
+            except discord.HTTPException:
+                notes.append("⚠️ I couldn't post in the result channel - check my permissions there.")
+        try:
+            if posted:
+                await message.delete()  # moved out of pending
+            else:
+                await message.edit(embed=embed, view=None)  # keep the record in pending
+        except discord.HTTPException:
+            notes.append("⚠️ Couldn't clean up the pending message.")
 
     # DM the applicant
     target = guild.get_member(uid)
