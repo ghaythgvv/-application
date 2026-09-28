@@ -32,6 +32,8 @@ SERVER_NAME = "ELT | ELITE LEADERS COMMUNITY"
 BANNER_URL = ""          # direct image link for the panel banner (leave "" for none)
 ACCENT = 0x8B3DFF        # embed colour
 
+INTERVIEW_INVITE_URL = "https://discord.gg/VE3Yaje9ED"  # sent in the interview DM
+
 MIN_DAYS_IN_SERVER = 7   # member must have been in the server this long
 COOLDOWN_HOURS = 72      # wait time before re-applying after a submission
 # ====================================================================
@@ -364,9 +366,10 @@ async def finalize(interaction, message: discord.Message, uid: int, action: str,
     elif action == "interview":
         color, status = 0xF1C40F, f"🎤 Interview requested by {reviewer.mention}"
         dm = discord.Embed(
-            title="🎤 Interview request",
-            description=f"Your staff application in **{guild.name}** looks promising. "
-                        "A staff member will reach out to you for a short interview.",
+            title="Interview request",
+            description=f"Your staff application in **{guild.name}** looks promising, "
+                        "join this server for Interview:\n"
+                        f"{INTERVIEW_INVITE_URL}",
             color=0xF1C40F,
         )
 
