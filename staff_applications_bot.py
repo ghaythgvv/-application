@@ -24,6 +24,7 @@ GUILD_ID = 1410440666747633707             # your server ID
 PENDING_CHANNEL_ID = 1513904283337101364   # new applications arrive here
 ACCEPTED_CHANNEL_ID = 1513904281198137475  # accepted applications are posted here
 DENIED_CHANNEL_ID = 1513904282267811920    # denied applications are posted here
+APPLY_CHANNEL_ID = 1513904279847702699     # channel where the Apply panel lives
 STAFF_ROLE_ID = 0        # role given when an application is accepted (0 = give no role)
 REVIEWER_ROLE_ID = 0     # role allowed to Accept / Deny (0 = only Manage Server / Admin)
 
@@ -72,7 +73,7 @@ def panel_embed() -> discord.Embed:
             "reliable, fair and genuinely invested in the server.\n\n"
             f"{status}"
         ),
-        color=ACCENT,
+        color=ACCENT if state["open"] else 0xE74C3C,
     )
     e.add_field(
         name="🎯 What we look for",
@@ -208,8 +209,12 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
 
 
 class ApplyView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, closed: bool = False):
         super().__init__(timeout=None)
+        if closed:
+            self.apply.label = "Applications Closed"
+            self.apply.style = discord.ButtonStyle.secondary
+            self.apply.disabled = True
 
     @discord.ui.button(label="Apply", emoji="📝", style=discord.ButtonStyle.primary, custom_id="staffapp:apply")
     async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -422,7 +427,18 @@ async def staffpanel(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("Admins only.", ephemeral=True)
     await interaction.response.send_message("Panel posted ✅", ephemeral=True)
-    await interaction.channel.send(embed=panel_embed(), view=ApplyView())
+    await interaction.channel.send(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
+
+
+async def find_panel(guild: discord.Guild):
+    """Finds the bot's Apply panel message in the applications channel."""
+    channel = guild.get_channel(APPLY_CHANNEL_ID)
+    if channel is None:
+        return None
+    async for msg in channel.history(limit=100):
+        if msg.author.id == bot.user.id and msg.embeds and (msg.embeds[0].title or "").startswith("✦ Join the"):
+            return msg
+    return None
 
 
 @bot.tree.command(name="staffapps", description="Open or close staff applications")
@@ -436,10 +452,19 @@ async def staffpanel(interaction: discord.Interaction):
 async def staffapps(interaction: discord.Interaction, mode: app_commands.Choice[str]):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("Admins only.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
     state["open"] = mode.value == "open"
-    await interaction.response.send_message(
-        f"Applications are now **{'OPEN' if state['open'] else 'CLOSED'}**. "
-        "Re-run /staffpanel to refresh the panel text.",
+    note = ""
+    try:
+        panel = await find_panel(interaction.guild)
+        if panel:
+            await panel.edit(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
+        else:
+            note = " I couldn't find the panel - run /staffpanel again."
+    except discord.HTTPException:
+        note = " I couldn't update the panel message - check my permissions in that channel."
+    await interaction.followup.send(
+        f"Applications are now **{'OPEN' if state['open'] else 'CLOSED'}**.{note}",
         ephemeral=True,
     )
 
@@ -460,6 +485,15 @@ async def setup_hook():
 @bot.event
 async def on_ready():
     log.info("Logged in as %s (%s)", bot.user, bot.user.id)
+    guild = bot.get_guild(GUILD_ID)
+    if guild:
+        try:
+            panel = await find_panel(guild)
+            if panel and "CLOSED" in (panel.embeds[0].description or ""):
+                state["open"] = False
+                log.info("Panel is marked CLOSED - keeping applications closed")
+        except discord.HTTPException:
+            log.warning("Couldn't read the panel to restore open/closed state")
 
 
 if __name__ == "__main__":
