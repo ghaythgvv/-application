@@ -148,6 +148,10 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
+        if interaction.user.id in pending:
+            await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
+            return
+
         channel = interaction.client.get_channel(PENDING_CHANNEL_ID)
         if channel is None:
             log.error("Pending channel %s not found", PENDING_CHANNEL_ID)
@@ -186,6 +190,7 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
             )
             return
 
+        pending.add(user.id)
         cooldowns[user.id] = time.time() + COOLDOWN_HOURS * 3600
         await interaction.followup.send(
             "✅ Your application was sent! We'll reply by DM — keep your DMs open.",
@@ -237,12 +242,7 @@ class ApplyView(discord.ui.View):
                     ephemeral=True,
                 )
 
-        pending.add(user.id)
-        try:
-            await interaction.response.send_modal(ApplicationModal())
-        except discord.HTTPException:
-            pending.discard(user.id)
-            raise
+        await interaction.response.send_modal(ApplicationModal())
 
 
 # ------------------------------ Review flow ------------------------------
