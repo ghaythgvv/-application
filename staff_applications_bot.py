@@ -129,7 +129,7 @@ async def has_open_application(uid: int) -> bool:
         return False
     footer = f"User ID: {uid}"
     try:
-        async for m in channel.history(limit=100):
+        async for m in channel.history(limit=200):
             if (
                 m.author.id == bot.user.id
                 and m.embeds
@@ -188,10 +188,14 @@ class ApplicationModal(discord.ui.Modal, title="Staff Application"):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         uid = interaction.user.id
-        if uid in submitting or await has_open_application(uid):
+        if uid in submitting:
             await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
             return
-        submitting.add(uid)
+        submitting.add(uid)  # lock first, so two quick submits can't both get through
+        if await has_open_application(uid):
+            submitting.discard(uid)
+            await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
+            return
 
         channel = interaction.client.get_channel(PENDING_CHANNEL_ID)
         if channel is None:
@@ -476,8 +480,30 @@ def review_view(uid: int, interview: bool = True) -> discord.ui.View:
 async def staffpanel(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("Admins only.", ephemeral=True)
-    await interaction.response.send_message("Panel posted ✅", ephemeral=True)
-    await interaction.channel.send(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
+    await interaction.response.defer(ephemeral=True)
+
+    # Always post in the configured apply channel, so /staffapps and the
+    # restart check can find the panel again (falls back to this channel).
+    channel = interaction.guild.get_channel(APPLY_CHANNEL_ID) or interaction.channel
+
+    # Remove older panels so only one live panel exists (old ones would never update).
+    try:
+        async for msg in channel.history(limit=100):
+            if msg.author.id == bot.user.id and msg.embeds and (msg.embeds[0].title or "").startswith("✦ Join the"):
+                await msg.delete()
+    except discord.HTTPException:
+        pass
+
+    try:
+        await channel.send(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
+    except discord.HTTPException:
+        await interaction.followup.send(
+            f"⚠️ I couldn't post the panel in {channel.mention} - check my permissions there.",
+            ephemeral=True,
+        )
+        return
+    note = "" if channel.id == APPLY_CHANNEL_ID else " (APPLY_CHANNEL_ID wasn't found, so I used this channel.)"
+    await interaction.followup.send(f"Panel posted in {channel.mention} ✅{note}", ephemeral=True)
 
 
 async def find_panel(guild: discord.Guild):
