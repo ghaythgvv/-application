@@ -265,7 +265,7 @@ class ApplyView(discord.ui.View):
             self.apply.style = discord.ButtonStyle.secondary
             self.apply.disabled = True
 
-    @discord.ui.button(label="Apply", emoji="📝", style=discord.ButtonStyle.primary, custom_id="staffapp:apply")
+    @discord.ui.button(label="Apply", emoji="📝", style=discord.ButtonStyle.secondary, custom_id="staffapp:apply")
     async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
 
@@ -429,9 +429,9 @@ class ReviewButton(
     template=r"staffapp:(?P<action>accept|interview|deny):(?P<uid>[0-9]+)",
 ):
     STYLES = {
-        "accept": ("Accept", "✅", discord.ButtonStyle.success),
-        "interview": ("Interview", None, discord.ButtonStyle.secondary),  # grey, no emoji
-        "deny": ("Deny", "❌", discord.ButtonStyle.danger),
+        "accept": ("Accept", "✅", discord.ButtonStyle.secondary),
+        "interview": ("Interview", None, discord.ButtonStyle.secondary),  # no emoji
+        "deny": ("Deny", "❌", discord.ButtonStyle.secondary),
     }
 
     def __init__(self, action: str, uid: int):
