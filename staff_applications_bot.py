@@ -75,7 +75,7 @@ def quote(text: str, limit: int = 1000) -> str:
 
 
 def panel_embed() -> discord.Embed:
-    status = "🟢 Applications are **OPEN**" if state["open"] else "🔴 Applications are **CLOSED**"
+    status = "Applications are **OPEN**" if state["open"] else "Applications are **CLOSED**"
     e = discord.Embed(
         title=f"✦ Join the {SERVER_NAME} Staff Team",
         description=(
