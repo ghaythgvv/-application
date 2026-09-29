@@ -279,7 +279,7 @@ async def submit_application(interaction: discord.Interaction, answers: dict):
     drafts.pop(uid, None)
     cooldowns[uid] = time.time() + COOLDOWN_HOURS * 3600
     await interaction.followup.send(
-        "✅ Your application was sent! We'll reply by DM — keep your DMs open.",
+        "☑️ Your application was sent! We'll reply by DM — keep your DMs open.",
         ephemeral=True,
     )
 
@@ -325,7 +325,7 @@ class StepModal(discord.ui.Modal):
 
         if self.part + 1 < len(PARTS):
             await interaction.response.send_message(
-                f"✅ Part {self.part + 1}/{len(PARTS)} saved. Press **Continue** for the next part.",
+                f"☑️ Part {self.part + 1}/{len(PARTS)} saved. Press **Continue** for the next part.",
                 view=ContinueView(uid, self.part + 1),
                 ephemeral=True,
             )
@@ -444,7 +444,7 @@ async def finalize(interaction, message: discord.Message, uid: int, action: str,
     status_index = next((i for i, f in enumerate(embed.fields) if f.name == "Status"), None)
 
     if action == "accept":
-        color, status = 0x2ECC71, f"✅ Accepted by {reviewer.mention}"
+        color, status = 0x2ECC71, f"☑️ Accepted by {reviewer.mention}"
         member = guild.get_member(uid)
         if member is None:
             try:
@@ -529,7 +529,7 @@ async def finalize(interaction, message: discord.Message, uid: int, action: str,
     except (discord.Forbidden, discord.HTTPException):
         notes.append("⚠️ Couldn't DM the applicant (their DMs are closed).")
 
-    await interaction.followup.send("Done. " + " ".join(notes) if notes else "Done ✅", ephemeral=True)
+    await interaction.followup.send("Done. " + " ".join(notes) if notes else "Done ☑️", ephemeral=True)
 
 
 class ReviewButton(
@@ -537,7 +537,7 @@ class ReviewButton(
     template=r"staffapp:(?P<action>accept|interview|deny):(?P<uid>[0-9]+)",
 ):
     STYLES = {
-        "accept": ("Accept", "✅", discord.ButtonStyle.secondary),
+        "accept": ("Accept", "☑️", discord.ButtonStyle.secondary),
         "interview": ("Interview", None, discord.ButtonStyle.secondary),  # no emoji
         "deny": ("Deny", "❌", discord.ButtonStyle.secondary),
     }
@@ -607,7 +607,7 @@ async def staffpanel(interaction: discord.Interaction):
         )
         return
     note = "" if channel.id == APPLY_CHANNEL_ID else " (APPLY_CHANNEL_ID wasn't found, so I used this channel.)"
-    await interaction.followup.send(f"Panel posted in {channel.mention} ✅{note}", ephemeral=True)
+    await interaction.followup.send(f"Panel posted in {channel.mention} ☑️{note}", ephemeral=True)
 
 
 async def find_panel(guild: discord.Guild):
