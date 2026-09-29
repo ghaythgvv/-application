@@ -141,124 +141,226 @@ async def has_open_application(uid: int) -> bool:
         return False
     return False
 
-class ApplicationModal(discord.ui.Modal, title="Staff Application"):
-    age = discord.ui.TextInput(
-        label="Your age",
-        placeholder="e.g. 19",
-        min_length=1,
-        max_length=3,
-        required=True,
+# ------------------------------ Application form ------------------------------
+# Discord modals hold at most 5 inputs, so the form is asked in 3 short steps
+# (5 questions each). Answers are kept in memory between steps.
+# label = what shows above the box (Discord limit: 45 characters)
+# question = the full question shown to reviewers
+QUESTIONS = [
+    {"key": "age", "label": "Your age", "question": "Your age",
+     "placeholder": "e.g. 19", "long": False, "min": 1, "max": 3},
+    {"key": "why_join", "label": "Why do you wanna join the staff team?",
+     "question": "Why do you wanna join the staff team?",
+     "placeholder": "Tell us in your own words", "long": True, "min": 20, "max": 400},
+    {"key": "country_tz", "label": "What country / time zone are you from?",
+     "question": "What country/time zone are you from?",
+     "placeholder": "e.g. Tunisia, GMT+1", "long": False, "min": 2, "max": 100},
+    {"key": "activity", "label": "How active can you be each day?",
+     "question": "How active can you be each day?",
+     "placeholder": "e.g. about 4 hours a day", "long": False, "min": 2, "max": 100},
+    {"key": "prev_staff", "label": "Been staff in another community before?",
+     "question": "Have you been staff in another community before?",
+     "placeholder": "Yes or no - and where, if yes", "long": True, "min": 2, "max": 300},
+
+    {"key": "why_become", "label": "Why do you want to become a staff member?",
+     "question": "Why do you want to become a staff member?",
+     "placeholder": "Tell us in your own words", "long": True, "min": 20, "max": 400},
+    {"key": "good_choice", "label": "What makes you a good choice for staff?",
+     "question": "What makes you a good choice for the staff team?",
+     "placeholder": "What makes you a good choice for the staff team?", "long": True, "min": 20, "max": 400},
+    {"key": "strengths", "label": "What are your strengths and weaknesses?",
+     "question": "What are your strengths and weaknesses?",
+     "placeholder": "Be honest", "long": True, "min": 10, "max": 400},
+    {"key": "arguing", "label": "What if two members started arguing?",
+     "question": "What would you do if two members started arguing?",
+     "placeholder": "What would you do if two members started arguing?", "long": True, "min": 20, "max": 400},
+    {"key": "abuse", "label": "What if another staff member abused powers?",
+     "question": "What would you do if another staff member abused their powers?",
+     "placeholder": "What would you do if another staff member abused their powers?", "long": True, "min": 20, "max": 400},
+
+    {"key": "repeat", "label": "How to handle repeated rule breaking?",
+     "question": "How would you handle someone breaking the rules repeatedly?",
+     "placeholder": "How would you handle someone breaking the rules repeatedly?", "long": True, "min": 20, "max": 400},
+    {"key": "insulted", "label": "What if a member insulted you?",
+     "question": "What would you do if a member insulted or disrespected you?",
+     "placeholder": "What would you do if a member insulted or disrespected you?", "long": True, "min": 20, "max": 400},
+    {"key": "removal", "label": "Abusing staff powers can lead to removal?",
+     "question": "Do you understand that abusing staff powers can result in removal?",
+     "placeholder": "Yes or no", "long": False, "min": 2, "max": 200},
+    {"key": "rules", "label": "Willing to follow rules & respect staff?",
+     "question": "Are you willing to follow the server rules and respect higher-ranking staff?",
+     "placeholder": "Yes or no", "long": False, "min": 2, "max": 200},
+    {"key": "extra", "label": "Anything else you'd like us to know?",
+     "question": "Is there anything else you would like us to know?",
+     "placeholder": "Write \"No\" if there's nothing", "long": True, "min": 1, "max": 400},
+]
+PARTS = [QUESTIONS[i:i + 5] for i in range(0, len(QUESTIONS), 5)]
+
+# answers typed so far, per applicant (kept in memory between the steps)
+drafts: dict[int, dict[str, str]] = {}
+
+
+def application_embed(user: discord.abc.User, answers: dict, limit: int) -> discord.Embed:
+    joined = (
+        discord.utils.format_dt(user.joined_at, "R")
+        if isinstance(user, discord.Member) and user.joined_at
+        else "—"
     )
-    activity = discord.ui.TextInput(
-        label="Timezone and daily activity",
-        placeholder="e.g. GMT+1, about 4 hours a day",
-        max_length=100,
-        required=True,
+    e = discord.Embed(
+        description=(
+            "# ✦ STAFF APPLICATION\n"
+            f"**Applicant:** {user.mention} (`{user.id}`)\n"
+            f"**Age:** {clip(answers.get('age', ''), 10)}  •  **Joined:** {joined}"
+        ),
+        color=ACCENT,
+        timestamp=datetime.now(timezone.utc),
     )
-    why = discord.ui.TextInput(
-        label="Why do you want to be staff?",
-        style=discord.TextStyle.paragraph,
-        min_length=30,
-        max_length=1000,
-        required=True,
-    )
-    experience = discord.ui.TextInput(
-        label="Previous experience (optional)",
-        style=discord.TextStyle.paragraph,
-        max_length=1000,
-        required=False,
-    )
-    scenario = discord.ui.TextInput(
-        label="Two members are arguing. What do you do?",
-        style=discord.TextStyle.paragraph,
-        min_length=30,
-        max_length=1000,
-        required=True,
+    e.set_thumbnail(url=user.display_avatar.url)
+    for q in QUESTIONS[1:]:  # age is already in the description
+        e.add_field(
+            name=q["question"][:256],
+            value=quote(answers.get(q["key"], ""), limit)[:1024],
+            inline=False,
+        )
+    e.add_field(name="Status", value="🕓 Pending review", inline=False)
+    e.set_footer(text=f"User ID: {user.id}")
+    return e
+
+
+async def submit_application(interaction: discord.Interaction, answers: dict):
+    """Final step: post the finished application in the pending channel.
+    The interaction must already be deferred."""
+    user = interaction.user
+    uid = user.id
+
+    if not state["open"]:
+        await interaction.followup.send("🔴 Applications are currently closed.", ephemeral=True)
+        return
+
+    if uid in submitting:
+        await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
+        return
+    submitting.add(uid)  # lock first, so two quick submits can't both get through
+    if await has_open_application(uid):
+        submitting.discard(uid)
+        await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
+        return
+
+    channel = interaction.client.get_channel(PENDING_CHANNEL_ID)
+    if channel is None:
+        submitting.discard(uid)
+        log.error("Pending channel %s not found", PENDING_CHANNEL_ID)
+        await interaction.followup.send(
+            "⚠️ Applications are temporarily unavailable. Please tell an admin.",
+            ephemeral=True,
+        )
+        return
+
+    # An embed can hold 6000 characters in total - shrink the answers if needed.
+    for limit in (400, 250, 150):
+        e = application_embed(user, answers, limit)
+        if len(e) <= 5800:
+            break
+
+    try:
+        await channel.send(embed=e, view=review_view(uid, interview=True))
+    except discord.HTTPException:
+        log.exception("Could not post application")
+        submitting.discard(uid)
+        await interaction.followup.send(
+            "⚠️ Something went wrong sending your application. Please try again later.",
+            ephemeral=True,
+        )
+        return
+
+    pending.add(uid)
+    submitting.discard(uid)
+    drafts.pop(uid, None)
+    cooldowns[uid] = time.time() + COOLDOWN_HOURS * 3600
+    await interaction.followup.send(
+        "✅ Your application was sent! We'll reply by DM — keep your DMs open.",
+        ephemeral=True,
     )
 
+
+class StepModal(discord.ui.Modal):
+    """One step (up to 5 questions) of the application form."""
+
+    def __init__(self, part: int):
+        super().__init__(title=f"Staff Application ({part + 1}/{len(PARTS)})")
+        self.part = part
+        self.inputs: dict[str, discord.ui.TextInput] = {}
+        for q in PARTS[part]:
+            box = discord.ui.TextInput(
+                label=q["label"],
+                placeholder=q["placeholder"],
+                style=discord.TextStyle.paragraph if q["long"] else discord.TextStyle.short,
+                min_length=q["min"],
+                max_length=q["max"],
+                required=True,
+            )
+            self.inputs[q["key"]] = box
+            self.add_item(box)
+
     async def on_submit(self, interaction: discord.Interaction):
-        age_text = self.age.value.strip()
-        if not (age_text.isascii() and age_text.isdigit() and 13 <= int(age_text) <= 99):
+        uid = interaction.user.id
+        answers = {key: box.value.strip() for key, box in self.inputs.items()}
+
+        if self.part == 0:
+            age_text = answers["age"]
+            if not (age_text.isascii() and age_text.isdigit() and 13 <= int(age_text) <= 99):
+                await interaction.response.send_message(
+                    "⚠️ Please enter your real age as a number (13 or older). Press **Apply** to try again.",
+                    ephemeral=True,
+                )
+                return
+        elif uid not in drafts:
             await interaction.response.send_message(
-                "⚠️ Please enter your real age as a number (13 or older). Press **Apply** to try again.",
+                "⚠️ Your draft expired. Press **Apply** to start again.", ephemeral=True
+            )
+            return
+
+        drafts.setdefault(uid, {}).update(answers)
+
+        if self.part + 1 < len(PARTS):
+            await interaction.response.send_message(
+                f"✅ Part {self.part + 1}/{len(PARTS)} saved. Press **Continue** for the next part.",
+                view=ContinueView(uid, self.part + 1),
                 ephemeral=True,
             )
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
-
-        uid = interaction.user.id
-        if uid in submitting:
-            await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
-            return
-        submitting.add(uid)  # lock first, so two quick submits can't both get through
-        if await has_open_application(uid):
-            submitting.discard(uid)
-            await interaction.followup.send("⏳ You already have an application under review.", ephemeral=True)
-            return
-
-        channel = interaction.client.get_channel(PENDING_CHANNEL_ID)
-        if channel is None:
-            submitting.discard(uid)
-            log.error("Pending channel %s not found", PENDING_CHANNEL_ID)
-            await interaction.followup.send(
-                "⚠️ Applications are temporarily unavailable. Please tell an admin.",
-                ephemeral=True,
-            )
-            return
-
-        user = interaction.user
-        joined = (
-            discord.utils.format_dt(user.joined_at, "R")
-            if isinstance(user, discord.Member) and user.joined_at
-            else "—"
-        )
-        e = discord.Embed(
-            description=(
-                "# ✦ STAFF APPLICATION\n"
-                f"**Applicant:** {user.mention} (`{user.id}`)\n"
-                f"**Age:** {clip(self.age.value, 10)}  •  "
-                f"**Timezone / Activity:** {clip(self.activity.value, 100)}  •  "
-                f"**Joined:** {joined}\n\n"
-                f"## Why do you want to be staff?\n{quote(self.why.value)}\n\n"
-                f"## Previous experience\n{quote(self.experience.value)}\n\n"
-                f"## How would you handle an argument?\n{quote(self.scenario.value)}"
-            ),
-            color=ACCENT,
-            timestamp=datetime.now(timezone.utc),
-        )
-        e.set_thumbnail(url=user.display_avatar.url)
-        e.add_field(name="Status", value="🕓 Pending review", inline=False)
-        e.set_footer(text=f"User ID: {user.id}")
-
-        try:
-            await channel.send(embed=e, view=review_view(user.id, interview=True))
-        except discord.HTTPException:
-            log.exception("Could not post application")
-            submitting.discard(user.id)
-            await interaction.followup.send(
-                "⚠️ Something went wrong sending your application. Please try again later.",
-                ephemeral=True,
-            )
-            return
-
-        pending.add(user.id)
-        submitting.discard(user.id)
-        cooldowns[user.id] = time.time() + COOLDOWN_HOURS * 3600
-        await interaction.followup.send(
-            "✅ Your application was sent! We'll reply by DM — keep your DMs open.",
-            ephemeral=True,
-        )
+        await submit_application(interaction, drafts.get(uid, answers))
 
     async def on_error(self, interaction: discord.Interaction, error: Exception):
         log.exception("Application modal error", exc_info=error)
-        pending.discard(interaction.user.id)
         submitting.discard(interaction.user.id)
         msg = "⚠️ Something went wrong. Please try again."
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
         else:
             await interaction.response.send_message(msg, ephemeral=True)
+
+
+class ContinueView(discord.ui.View):
+    """Shown (only to the applicant) between steps - opens the next part of the form."""
+
+    def __init__(self, uid: int, part: int):
+        super().__init__(timeout=900)
+        self.uid = uid
+        self.part = part
+        self.go.label = f"Continue ({part + 1}/{len(PARTS)})"
+
+    @discord.ui.button(label="Continue", emoji="➡️", style=discord.ButtonStyle.secondary)
+    async def go(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.uid:
+            return await interaction.response.send_message("This isn't your application.", ephemeral=True)
+        if self.uid not in drafts:
+            return await interaction.response.send_message(
+                "⚠️ Your draft expired. Press **Apply** to start again.", ephemeral=True
+            )
+        await interaction.response.send_modal(StepModal(self.part))
 
 
 class ApplyView(discord.ui.View):
@@ -300,7 +402,8 @@ class ApplyView(discord.ui.View):
                     ephemeral=True,
                 )
 
-        await interaction.response.send_modal(ApplicationModal())
+        drafts.pop(user.id, None)  # start a fresh draft
+        await interaction.response.send_modal(StepModal(0))
 
 
 # ------------------------------ Review flow ------------------------------
