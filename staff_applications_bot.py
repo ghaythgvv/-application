@@ -86,7 +86,7 @@ def panel_embed() -> discord.Embed:
         color=ACCENT if state["open"] else 0xE74C3C,
     )
     e.add_field(
-        name="🎯 What we look for",
+        name="<a:226410surohpurplestar:1554285922651086939> What we look for",
         value=(
             "• Maturity and good judgement under pressure\n"
             "• Clear communication and teamwork\n"
@@ -96,7 +96,7 @@ def panel_embed() -> discord.Embed:
         inline=False,
     )
     e.add_field(
-        name="📌 Requirements",
+        name="<:501986darkpurplestaffbadge:1554290940930162790> Requirements",
         value=(
             f"• In the server for **{MIN_DAYS_IN_SERVER}+ days**\n"
             "• No staff experience needed\n"
