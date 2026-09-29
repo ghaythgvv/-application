@@ -146,6 +146,7 @@ async def has_open_application(uid: int) -> bool:
 # (5 questions each). Answers are kept in memory between steps.
 # label = what shows above the box (Discord limit: 45 characters)
 # question = the full question shown to reviewers
+# Every box is shown as a big (paragraph) box, so the "long" key is not used anymore.
 QUESTIONS = [
     {"key": "age", "label": "Your age", "question": "Your age",
      "placeholder": "e.g. 19", "long": False, "min": 1, "max": 3},
@@ -201,27 +202,27 @@ drafts: dict[int, dict[str, str]] = {}
 
 
 def application_embed(user: discord.abc.User, answers: dict, limit: int) -> discord.Embed:
+    """Pending embed: every question is a big heading, the answer is a quote under it.
+    Discord only renders headings in the description, so everything lives there."""
     joined = (
         discord.utils.format_dt(user.joined_at, "R")
         if isinstance(user, discord.Member) and user.joined_at
         else "—"
     )
+    blocks = [
+        "# ✦ STAFF APPLICATION\n"
+        f"**Applicant:** {user.mention} (`{user.id}`)\n"
+        f"**Age:** {clip(answers.get('age', ''), 10)}  •  **Joined:** {joined}"
+    ]
+    for q in QUESTIONS[1:]:  # age is already in the header
+        blocks.append(f"## {q['question']}\n{quote(answers.get(q['key'], ''), limit)}")
+
     e = discord.Embed(
-        description=(
-            "# ✦ STAFF APPLICATION\n"
-            f"**Applicant:** {user.mention} (`{user.id}`)\n"
-            f"**Age:** {clip(answers.get('age', ''), 10)}  •  **Joined:** {joined}"
-        ),
+        description="\n\n".join(blocks),
         color=ACCENT,
         timestamp=datetime.now(timezone.utc),
     )
     e.set_thumbnail(url=user.display_avatar.url)
-    for q in QUESTIONS[1:]:  # age is already in the description
-        e.add_field(
-            name=q["question"][:256],
-            value=quote(answers.get(q["key"], ""), limit)[:1024],
-            inline=False,
-        )
     e.add_field(name="Status", value="🕓 Pending review", inline=False)
     e.set_footer(text=f"User ID: {user.id}")
     return e
@@ -256,10 +257,10 @@ async def submit_application(interaction: discord.Interaction, answers: dict):
         )
         return
 
-    # An embed can hold 6000 characters in total - shrink the answers if needed.
-    for limit in (400, 250, 150):
+    # A description holds 4096 characters and a whole embed 6000 - shrink the answers if needed.
+    for limit in (400, 300, 220, 160, 110, 70):
         e = application_embed(user, answers, limit)
-        if len(e) <= 5800:
+        if len(e.description) <= 4000 and len(e) <= 5800:
             break
 
     try:
@@ -294,7 +295,7 @@ class StepModal(discord.ui.Modal):
             box = discord.ui.TextInput(
                 label=q["label"],
                 placeholder=q["placeholder"],
-                style=discord.TextStyle.paragraph if q["long"] else discord.TextStyle.short,
+                style=discord.TextStyle.paragraph,  # every question gets a big box
                 min_length=q["min"],
                 max_length=q["max"],
                 required=True,
