@@ -149,8 +149,8 @@ async def has_open_application(uid: int) -> bool:
 QUESTIONS = [
     {"key": "age", "label": "Your age", "question": "Your age",
      "placeholder": "e.g. 19", "long": False, "min": 1, "max": 3},
-    {"key": "why_join", "label": "Why do you wanna join the staff team?",
-     "question": "Why do you wanna join the staff team?",
+    {"key": "why_join", "label": "Why you wanna join the staff team?",
+     "question": "Why you wanna join the staff team?",
      "placeholder": "Tell us in your own words", "long": True, "min": 20, "max": 400},
     {"key": "country_tz", "label": "What country / time zone are you from?",
      "question": "What country/time zone are you from?",
