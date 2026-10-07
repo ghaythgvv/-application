@@ -2,7 +2,7 @@
 Staff Applications Bot  (discord.py 2.4+)
 
 Flow:
-  1. An admin runs /staffpanel in the applications channel -> panel with an Apply button.
+  1. An admin runs !staffpanel in the applications channel -> panel with an Apply button.
   2. A member clicks Apply -> a form (modal) opens.
   3. The submission is posted in the review channel with Accept / Interview / Deny buttons.
   4. The decision is saved on the review message and the applicant gets a DM.
@@ -49,6 +49,7 @@ cooldowns: dict[int, float] = {}
 
 intents = discord.Intents.default()
 intents.members = True  # enable "Server Members Intent" in the developer portal
+intents.message_content = True  # enable "Message Content Intent" in the developer portal
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -578,17 +579,13 @@ def review_view(uid: int, interview: bool = True) -> discord.ui.View:
 
 
 # ------------------------------ Commands ------------------------------
-@bot.tree.command(name="staffpanel", description="Post the staff application panel in this channel")
-@app_commands.default_permissions(administrator=True)
-@app_commands.guild_only()
-async def staffpanel(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("Admins only.", ephemeral=True)
-    await interaction.response.defer(ephemeral=True)
-
-    # Always post in the configured apply channel, so /staffapps and the
+@bot.command(name="staffpanel")
+@commands.has_permissions(administrator=True)
+@commands.guild_only()
+async def staffpanel(ctx: commands.Context):
+    # Always post in the configured apply channel, so !staffapps and the
     # restart check can find the panel again (falls back to this channel).
-    channel = interaction.guild.get_channel(APPLY_CHANNEL_ID) or interaction.channel
+    channel = ctx.guild.get_channel(APPLY_CHANNEL_ID) or ctx.channel
 
     # Remove older panels so only one live panel exists (old ones would never update).
     try:
@@ -601,13 +598,10 @@ async def staffpanel(interaction: discord.Interaction):
     try:
         await channel.send(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
     except discord.HTTPException:
-        await interaction.followup.send(
-            f"⚠️ I couldn't post the panel in {channel.mention} - check my permissions there.",
-            ephemeral=True,
-        )
+        await ctx.send(f"⚠️ I couldn't post the panel in {channel.mention} - check my permissions there.")
         return
     note = "" if channel.id == APPLY_CHANNEL_ID else " (APPLY_CHANNEL_ID wasn't found, so I used this channel.)"
-    await interaction.followup.send(f"Panel posted in {channel.mention} ☑️{note}", ephemeral=True)
+    await ctx.send(f"Panel posted in {channel.mention} ☑️{note}")
 
 
 async def find_panel(guild: discord.Guild):
@@ -621,32 +615,23 @@ async def find_panel(guild: discord.Guild):
     return None
 
 
-@bot.tree.command(name="staffapps", description="Open or close staff applications")
-@app_commands.describe(mode="Open or close applications")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="Open", value="open"),
-    app_commands.Choice(name="Close", value="close"),
-])
-@app_commands.default_permissions(administrator=True)
-@app_commands.guild_only()
-async def staffapps(interaction: discord.Interaction, mode: app_commands.Choice[str]):
-    if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("Admins only.", ephemeral=True)
-    await interaction.response.defer(ephemeral=True)
-    state["open"] = mode.value == "open"
+@bot.command(name="staffapps")
+@commands.has_permissions(administrator=True)
+@commands.guild_only()
+async def staffapps(ctx: commands.Context, mode: str = ""):
+    if mode.lower() not in ("open", "close"):
+        return await ctx.send("Usage: `!staffapps open` or `!staffapps close`")
+    state["open"] = mode.lower() == "open"
     note = ""
     try:
-        panel = await find_panel(interaction.guild)
+        panel = await find_panel(ctx.guild)
         if panel:
             await panel.edit(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
         else:
-            note = " I couldn't find the panel - run /staffpanel again."
+            note = " I couldn't find the panel - run !staffpanel again."
     except discord.HTTPException:
         note = " I couldn't update the panel message - check my permissions in that channel."
-    await interaction.followup.send(
-        f"Applications are now **{'OPEN' if state['open'] else 'CLOSED'}**.{note}",
-        ephemeral=True,
-    )
+    await ctx.send(f"Applications are now **{'OPEN' if state['open'] else 'CLOSED'}**.{note}")
 
 
 # ------------------------------ Startup ------------------------------
