@@ -29,7 +29,8 @@ STAFF_ROLE_ID = 0        # role given when an application is accepted (0 = give 
 REVIEWER_ROLE_ID = 0     # role allowed to Accept / Deny (0 = only Manage Server / Admin)
 
 SERVER_NAME = "ELT | ELITE LEADERS COMMUNITY"
-BANNER_URL = ""          # direct image link for the panel banner (leave "" for none)
+BANNER_FILE = "staff_applications.png"  # banner image next to this file (uploaded with the panel)
+BANNER_URL = ""          # optional fallback: direct image link, used only if BANNER_FILE is missing
 ACCENT = 0x8B3DFF        # embed colour
 
 INTERVIEW_INVITE_URL = "https://discord.gg/VE3Yaje9ED"  # sent in the interview DM
@@ -40,6 +41,9 @@ COOLDOWN_HOURS = 72      # wait time before re-applying after a submission
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("staffapps")
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BANNER_PATH = os.path.join(BASE_DIR, BANNER_FILE)
 
 state = {"open": True}
 pending: set[int] = set()
@@ -73,6 +77,14 @@ def quote(text: str, limit: int = 1000) -> str:
     body = clip(text, limit).replace("\n", "\n> ")
     body = body if len(body) <= 1200 else body[:1199] + "…"
     return "> " + body
+
+
+def banner_file() -> discord.File | None:
+    """A fresh File object for the panel banner (a File can only be sent once), or None if the image is missing."""
+    if os.path.isfile(BANNER_PATH):
+        return discord.File(BANNER_PATH, filename=BANNER_FILE)
+    log.warning("Banner image not found at %s", BANNER_PATH)
+    return None
 
 
 def panel_embed() -> discord.Embed:
@@ -115,7 +127,9 @@ def panel_embed() -> discord.Embed:
         ),
         inline=True,
     )
-    if BANNER_URL:
+    if os.path.isfile(BANNER_PATH):
+        e.set_image(url=f"attachment://{BANNER_FILE}")
+    elif BANNER_URL:
         e.set_image(url=BANNER_URL)
     e.set_footer(text=f"{SERVER_NAME} • Staff Recruitment")
     return e
@@ -596,7 +610,11 @@ async def staffpanel(ctx: commands.Context):
         pass
 
     try:
-        await channel.send(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
+        kwargs = {"embed": panel_embed(), "view": ApplyView(closed=not state["open"])}
+        file = banner_file()
+        if file:
+            kwargs["file"] = file  # the banner image shown inside the embed
+        await channel.send(**kwargs)
     except discord.HTTPException:
         await ctx.send(f"⚠️ I couldn't post the panel in {channel.mention} - check my permissions there.")
         return
@@ -626,7 +644,11 @@ async def staffapps(ctx: commands.Context, mode: str = ""):
     try:
         panel = await find_panel(ctx.guild)
         if panel:
-            await panel.edit(embed=panel_embed(), view=ApplyView(closed=not state["open"]))
+            kwargs = {"embed": panel_embed(), "view": ApplyView(closed=not state["open"])}
+            file = banner_file()
+            if file:
+                kwargs["attachments"] = [file]  # re-attach the banner so the embed image keeps showing
+            await panel.edit(**kwargs)
         else:
             note = " I couldn't find the panel - run !staffpanel again."
     except discord.HTTPException:
